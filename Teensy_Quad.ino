@@ -680,6 +680,7 @@ void loop() {
 				Update the controls if the update flag was set in the serialEvent1 callback.
 			*/
 			if(update_flag) {
+				//lock in case there are interrupts. 
 				acquireLock();
 				for(int i = 0; i < BUFFERSIZE; i++) {
 					throttle = buffer[0];
@@ -721,8 +722,16 @@ void loop() {
 			#endif
 			//run pids at 100Hz
 			if(oneHunHzEvent.shouldRunEvent()) {
+
+			#if defined(DEBUG)
+				Serial.print("100 Hz Event Time: ");
+				Serial.println(micros());
+			#endif
+				//compute PIDS now. 
 				computePID();
 			}
+
+			//update motor values. 
 			updateMotors();
 			
 			#ifdef DEBUG
@@ -989,7 +998,7 @@ inline void updateMotors() {
 }
 
 /**
-* Copute the next PIDs. 
+* Compute the next PIDs. 
 */
 inline void computePID() {
 	acquireLock();
