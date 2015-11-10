@@ -31,6 +31,8 @@ void FrequencyEvent::setFrequency(long frequency) {
 	if(frequency < 0) return;
 	
 	//time interval should be in microseconds. 
+	//so (1/(frequency)) * 1000 = milliseconds * 1000 = microseconds. 
+	//simplifies to 1,000,000/(frequency)
 	timeInterval = (long) 1000000/frequency;
 }
 
