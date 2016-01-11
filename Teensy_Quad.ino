@@ -29,8 +29,8 @@ enum Gscale {
 /*
 * Specify sensor full scale
 */
-int Gscale = GFS_500DPS;
-int Ascale = AFS_2G;
+int Gscale = GFS_2000DPS;
+int Ascale = AFS_8G;
 float aRes, gRes; // scale resolutions per LSB for the sensors
   
 #define blinkPin 13  // Blink LED on Teensy
@@ -63,7 +63,7 @@ boolean interruptLock = false;
 /*  
  * //////////////// RC variables //////////////////////////
  */
-float ch1, ch2, ch3, ch4, ch5, ch6;         // RC channel inputs
+volatile float ch1, ch2, ch3, ch4, ch5, ch6;         // RC channel inputs
 
 volatile unsigned long rcLastChange1 = micros();
 volatile unsigned long rcLastChange2 = micros();
@@ -241,7 +241,8 @@ double pitch_rate_offset, roll_rate_offset;
 double pitch_rate_input, roll_rate_input;
 
 /*
-* Rate PIDS for roll and pitch, yaw is already rate based. Inputs are outputs from orientation based controllers. 
+* Rate PIDS for roll and pitch, yaw is already rate based. 
+* Inputs are outputs from orientation based controllers. 
 */
 PID ratePitchPID(&filt_gy, &pitch_rate_offset, &pitch_rate_input, PITCH_RATE_P_VAL, PITCH_RATE_I_VAL, PITCH_RATE_D_VAL, REVERSE);
 PID rateRollPID(&filt_gx, &roll_rate_offset, &roll_rate_input, ROLL_RATE_P_VAL, ROLL_RATE_I_VAL, ROLL_RATE_D_VAL, REVERSE);
@@ -675,7 +676,7 @@ void loop() {
 			//serial event is working so don't need these for now. 
 			//readControls();
 			//readControlsFast();
-			
+	
 			/*
 				Update the controls if the update flag was set in the serialEvent1 callback.
 			*/
@@ -767,6 +768,20 @@ inline void runFilters() {
 	filt_az = azFilter.run((double) az);
 }
 
+#define NZEROS 2
+#define NPOLES 2
+#define GAIN   2.555350342e+00
+static double xv[NZEROS+1], yv[NPOLES+1];
+
+inline double ButterWorthFilter(double value) {
+	xv[0] = xv[1]; xv[1] = xv[2]; 
+        xv[2] = value / GAIN;
+        yv[0] = yv[1]; yv[1] = yv[2]; 
+        yv[2] =   (xv[0] + xv[2]) + 2 * xv[1]
+                     + ( -0.1958157127 * yv[0]) + ( -0.3695273774 * yv[1]);
+        return yv[2];
+}
+
 inline void readRawMPUData() {
 	// If data ready bit set, all data registers have new data
   if(readByte(MPU6050_ADDRESS, INT_STATUS) & 0x01) {  // check if data ready interrupt
@@ -785,9 +800,6 @@ inline void readRawMPUData() {
     gx = (float)gyroCount[0]*gRes; // get actual gyro value, this depends on scale being set
     gy = (float)gyroCount[1]*gRes; 
     gz = (float)gyroCount[2]*gRes;
-
-    tempCount = readTempData();  // Read the x/y/z adc values
-    temperature = ((float) tempCount) / 340 + 36.53; // Temperature in degrees Centigrade
    }  
    
 }

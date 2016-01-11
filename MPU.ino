@@ -153,7 +153,9 @@ void LowPowerAccelOnlyMPU6050()
 
 }
 
-
+/**
+* Initialize the MPU6050.
+**/
 void initMPU6050()
 {  
 // wake up device-don't need this here if using calibration function below
@@ -161,13 +163,12 @@ void initMPU6050()
 //  delay(100); // Delay 100 ms for PLL to get established on x-axis gyro; should check for PLL ready interrupt  
 
  // get stable time source
-  writeByte(MPU6050_ADDRESS, PWR_MGMT_1, 0x01);  // Set clock source to be PLL with x-axis gyroscope reference, bits 2:0 = 001
+ // Set clock source to be PLL with z-axis gyroscope reference, bits 2:0 = 0011
+  writeByte(MPU6050_ADDRESS, PWR_MGMT_1, 0x03);
 
  // Configure Gyro and Accelerometer
- // Disable FSYNC and set accelerometer and gyro bandwidth to 44 and 42 Hz, respectively; 
- // DLPF_CFG = bits 2:0 = 010; this sets the sample rate at 1 kHz for both
- // Maximum delay time is 4.9 ms corresponding to just over 200 Hz sample rate
-  writeByte(MPU6050_ADDRESS, CONFIG, 0x03);  
+ // DLPF_CFG = bits 2:0 = 000; this sets the sample rate at 8 kHz for both
+  writeByte(MPU6050_ADDRESS, CONFIG, 0x00);  
  
  // Set sample rate = gyroscope output rate/(1 + SMPLRT_DIV)
   writeByte(MPU6050_ADDRESS, SMPLRT_DIV, 0x04);  // Use a 200 Hz rate; the same rate set in CONFIG above
