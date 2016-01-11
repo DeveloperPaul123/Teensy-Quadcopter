@@ -2,6 +2,7 @@
 #define BUTTERWORTH_H
 
 #define GAIN 2.0
+
 class Butterworth {
 	
 public:

@@ -670,12 +670,19 @@ void loop() {
 			}
 			
 		} else {
-			updateYPR();
-			runFilters();
 			
-			//serial event is working so don't need these for now. 
-			//readControls();
-			//readControlsFast();
+			//main loop. 
+			
+			//read data.
+			readRawMPUData();
+			
+			//update yaw, pitch roll values.
+			if(flyMode == AUTO_MODE) {
+				updateYPR();
+			}
+			
+			//run the filters. 
+			runFilters();
 	
 			/*
 				Update the controls if the update flag was set in the serialEvent1 callback.
@@ -756,7 +763,7 @@ void loop() {
 }
 
 /**
-* Runs filters for the gyroscope. 
+* Runs filters for the gyroscope and accelerometer. 
 **/
 inline void runFilters() {
 	filt_gy = gyFilter.run(gy);
@@ -768,47 +775,11 @@ inline void runFilters() {
 	filt_az = azFilter.run((double) az);
 }
 
-#define NZEROS 2
-#define NPOLES 2
-#define GAIN   2.555350342e+00
-static double xv[NZEROS+1], yv[NPOLES+1];
-
-inline double ButterWorthFilter(double value) {
-	xv[0] = xv[1]; xv[1] = xv[2]; 
-        xv[2] = value / GAIN;
-        yv[0] = yv[1]; yv[1] = yv[2]; 
-        yv[2] =   (xv[0] + xv[2]) + 2 * xv[1]
-                     + ( -0.1958157127 * yv[0]) + ( -0.3695273774 * yv[1]);
-        return yv[2];
-}
-
+/**
+* Read the raw data of the MPU6050
+*/
 inline void readRawMPUData() {
 	// If data ready bit set, all data registers have new data
-  if(readByte(MPU6050_ADDRESS, INT_STATUS) & 0x01) {  // check if data ready interrupt
-    readAccelData(accelCount);  // Read the x/y/z adc values
-    getAres();
-    
-	// Now we'll calculate the accleration value into actual g's
-    ax = (float)accelCount[0]*aRes; // get actual g value, this depends on scale being set
-    ay = (float)accelCount[1]*aRes;
-    az = (float)accelCount[2]*aRes;
-   
-    readGyroData(gyroCount);  // Read the x/y/z adc values
-    getGres();
- 
-    // Calculate the gyro value into actual degrees per second
-    gx = (float)gyroCount[0]*gRes; // get actual gyro value, this depends on scale being set
-    gy = (float)gyroCount[1]*gRes; 
-    gz = (float)gyroCount[2]*gRes;
-   }  
-   
-}
-
-/**
-* Update the yaw pitch roll values. 
-*/
-inline void updateYPR() {
-// If data ready bit set, all data registers have new data
   if(readByte(MPU6050_ADDRESS, INT_STATUS) & 0x01) {  // check if data ready interrupt
     readAccelData(accelCount);  // Read the x/y/z adc values
     getAres();
@@ -825,10 +796,13 @@ inline void updateYPR() {
     gx = (float)gyroCount[0]*gRes;  // get actual gyro value, this depends on scale being set
     gy = (float)gyroCount[1]*gRes;  
     gz = (float)gyroCount[2]*gRes;
-
-    tempCount = readTempData();  // Read the x/y/z adc values
-    temperature = ((float) tempCount) / 340 + 36.53; // Temperature in degrees Centigrade
    }  
+}
+
+/**
+* Update the yaw pitch roll values. 
+*/
+inline void updateYPR() {
    
     Now = micros();
     deltat = ((Now - lastUpdate)/1000000.0f); // set integration time by time elapsed since last filter update
@@ -878,12 +852,21 @@ inline void updateYPR() {
 
 
 
-// Implementation of Sebastian Madgwick's "...efficient orientation filter for... inertial/magnetic sensor arrays"
-// (see http://www.x-io.co.uk/category/open-source/ for examples and more details)
-// which fuses acceleration and rotation rate to produce a quaternion-based estimate of relative
-// device orientation -- which can be converted to yaw, pitch, and roll. Useful for stabilizing quadcopters, etc.
-// The performance of the orientation filter is at least as good as conventional Kalman-based filtering algorithms
-// but is much less computationally intensive---it can be performed on a 3.3 V Pro Mini operating at 8 MHz!
+/**
+* Implementation of Sebastian Madgwick's "...efficient orientation filter for... inertial/magnetic sensor arrays"
+* (see http://www.x-io.co.uk/category/open-source/ for examples and more details)
+* which fuses acceleration and rotation rate to produce a quaternion-based estimate of relative
+* device orientation -- which can be converted to yaw, pitch, and roll. Useful for stabilizing quadcopters, etc.
+* The performance of the orientation filter is at least as good as conventional Kalman-based filtering algorithms
+* but is much less computationally intensive---it can be performed on a 3.3 V Pro Mini operating at 8 MHz!
+* @param ax the x acceleration in g's
+* @param ay the y acceleration in g's
+* @param az the z acceleration in g's 
+* @param gx the x angular velocity in radians/s
+* @param gy the y angular velocry in radians/s
+* @param gz the z angular velocity in radians/s 
+* @param q* the an array to hold the updated quaternion values. 
+*/
 void MadgwickQuaternionUpdate(float ax, float ay, float az, float gx, float gy, float gz, float * q) {
 	//initialize the quaternion values. 
 	float q1 = q[0], q2 = q[1], q3 = q[2], q4 = q[3];         // short name local variable for readability
