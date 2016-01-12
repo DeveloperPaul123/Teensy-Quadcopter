@@ -33,7 +33,9 @@
 // above document; the MPU6050 and MPU 9150 are virtually identical but the latter has an on-board magnetic sensor
 //
 
-
+/**
+* Sets the gyroscope scale.
+*/
 void getGres() {
   switch (Gscale)
   {
@@ -55,6 +57,9 @@ void getGres() {
   }
 }
 
+/**
+* Sets the accelerometer scale.
+*/
 void getAres() {
   switch (Ascale)
   {
@@ -76,7 +81,10 @@ void getAres() {
   }
 }
 
-
+/**
+* Read the raw accelerometer data.
+* @param *destination array of 16 bit integers that the three axis values are written to.
+*/
 void readAccelData(int16_t * destination) {
   uint8_t rawData[6];  // x/y/z accel register data stored here
   readBytes(MPU6050_ADDRESS, ACCEL_XOUT_H, 6, &rawData[0]);  // Read the six raw data registers into data array
@@ -85,6 +93,10 @@ void readAccelData(int16_t * destination) {
   destination[2] = (int16_t)((rawData[4] << 8) | rawData[5]) ; 
 }
 
+/**
+* Read the raw gyroscope data. 
+* @param *destination array of 16 bit integers that the 3 axis values are written to.
+*/
 void readGyroData(int16_t * destination) {
   uint8_t rawData[6];  // x/y/z gyro register data stored here
   readBytes(MPU6050_ADDRESS, GYRO_XOUT_H, 6, &rawData[0]);  // Read the six raw data registers sequentially into data array
@@ -93,64 +105,14 @@ void readGyroData(int16_t * destination) {
   destination[2] = (int16_t)((rawData[4] << 8) | rawData[5]) ; 
 }
 
+/**
+* Reads the temperature data from the sensor.
+* @return int16_t 16 bit integer representing the sensor temperature.
+*/
 int16_t readTempData() {
   uint8_t rawData[2];  //temp register data stored here
   readBytes(MPU6050_ADDRESS, TEMP_OUT_H, 2, &rawData[0]);  // Read the two raw data registers sequentially into data array 
   return ((int16_t)rawData[0]) << 8 | rawData[1] ;  // Turn the MSB and LSB into a 16-bit value
-}
-
-
-
-// Configure the motion detection control for low power accelerometer mode
-void LowPowerAccelOnlyMPU6050()
-{
-
-// The sensor has a high-pass filter necessary to invoke to allow the sensor motion detection algorithms work properly
-// Motion detection occurs on free-fall (acceleration below a threshold for some time for all axes), motion (acceleration
-// above a threshold for some time on at least one axis), and zero-motion toggle (acceleration on each axis less than a 
-// threshold for some time sets this flag, motion above the threshold turns it off). The high-pass filter takes gravity out
-// consideration for these threshold evaluations; otherwise, the flags would be set all the time!
-  
-  uint8_t c = readByte(MPU6050_ADDRESS, PWR_MGMT_1);
-  writeByte(MPU6050_ADDRESS, PWR_MGMT_1, c & ~0x30); // Clear sleep and cycle bits [5:6]
-  writeByte(MPU6050_ADDRESS, PWR_MGMT_1, c |  0x30); // Set sleep and cycle bits [5:6] to zero to make sure accelerometer is running
-
-  c = readByte(MPU6050_ADDRESS, PWR_MGMT_2);
-  writeByte(MPU6050_ADDRESS, PWR_MGMT_2, c & ~0x38); // Clear standby XA, YA, and ZA bits [3:5]
-  writeByte(MPU6050_ADDRESS, PWR_MGMT_2, c |  0x00); // Set XA, YA, and ZA bits [3:5] to zero to make sure accelerometer is running
-    
-  c = readByte(MPU6050_ADDRESS, ACCEL_CONFIG);
-  writeByte(MPU6050_ADDRESS, ACCEL_CONFIG, c & ~0x07); // Clear high-pass filter bits [2:0]
-// Set high-pass filter to 0) reset (disable), 1) 5 Hz, 2) 2.5 Hz, 3) 1.25 Hz, 4) 0.63 Hz, or 7) Hold
-  writeByte(MPU6050_ADDRESS, ACCEL_CONFIG,  c | 0x00);  // Set ACCEL_HPF to 0; reset mode disbaling high-pass filter
-
-  c = readByte(MPU6050_ADDRESS, CONFIG);
-  writeByte(MPU6050_ADDRESS, CONFIG, c & ~0x07); // Clear low-pass filter bits [2:0]
-  writeByte(MPU6050_ADDRESS, CONFIG, c |  0x00);  // Set DLPD_CFG to 0; 260 Hz bandwidth, 1 kHz rate
-    
-  c = readByte(MPU6050_ADDRESS, INT_ENABLE);
-  writeByte(MPU6050_ADDRESS, INT_ENABLE, c & ~0xFF);  // Clear all interrupts
-  writeByte(MPU6050_ADDRESS, INT_ENABLE, 0x40);  // Enable motion threshold (bits 5) interrupt only
-  
-// Motion detection interrupt requires the absolute value of any axis to lie above the detection threshold
-// for at least the counter duration
-  writeByte(MPU6050_ADDRESS, MOT_THR, 0x80); // Set motion detection to 0.256 g; LSB = 2 mg
-  writeByte(MPU6050_ADDRESS, MOT_DUR, 0x01); // Set motion detect duration to 1  ms; LSB is 1 ms @ 1 kHz rate
-  
-  delay (100);  // Add delay for accumulation of samples
-  
-  c = readByte(MPU6050_ADDRESS, ACCEL_CONFIG);
-  writeByte(MPU6050_ADDRESS, ACCEL_CONFIG, c & ~0x07); // Clear high-pass filter bits [2:0]
-  writeByte(MPU6050_ADDRESS, ACCEL_CONFIG, c |  0x07);  // Set ACCEL_HPF to 7; hold the initial accleration value as a referance
-   
-  c = readByte(MPU6050_ADDRESS, PWR_MGMT_2);
-  writeByte(MPU6050_ADDRESS, PWR_MGMT_2, c & ~0xC7); // Clear standby XA, YA, and ZA bits [3:5] and LP_WAKE_CTRL bits [6:7]
-  writeByte(MPU6050_ADDRESS, PWR_MGMT_2, c |  0x47); // Set wakeup frequency to 5 Hz, and disable XG, YG, and ZG gyros (bits [0:2])  
-
-  c = readByte(MPU6050_ADDRESS, PWR_MGMT_1);
-  writeByte(MPU6050_ADDRESS, PWR_MGMT_1, c & ~0x20); // Clear sleep and cycle bit 5
-  writeByte(MPU6050_ADDRESS, PWR_MGMT_1, c |  0x20); // Set cycle bit 5 to begin low power accelerometer motion interrupts
-
 }
 
 /**
@@ -167,11 +129,11 @@ void initMPU6050()
   writeByte(MPU6050_ADDRESS, PWR_MGMT_1, 0x03);
 
  // Configure Gyro and Accelerometer
- // DLPF_CFG = bits 2:0 = 000; this sets the sample rate at 8 kHz for both
+ // DLPF_CFG = bits 2:0 = 000; this sets the sample rate at 1 kHz for both
   writeByte(MPU6050_ADDRESS, CONFIG, 0x00);  
  
  // Set sample rate = gyroscope output rate/(1 + SMPLRT_DIV)
-  writeByte(MPU6050_ADDRESS, SMPLRT_DIV, 0x04);  // Use a 200 Hz rate; the same rate set in CONFIG above
+  writeByte(MPU6050_ADDRESS, SMPLRT_DIV, 0x07);  // Use a 1kHz rate; the same rate set in CONFIG above
  
  // Set gyroscope full scale range
  // Range selects FS_SEL and AFS_SEL are 0 - 3, so 2-bit values are left-shifted into positions 4:3

@@ -32,7 +32,7 @@ double Butterworth::run(double newValue) {
 		x[2] = newValue / GAIN;
 		y[0] = y[1]; y[1] = y[2];
 		y[2] = ((b0 * x[0]) + (b2 *x[2])) + (b1 * x[1]) 
-				+ (a0 * y[0]) + (a1 * y[1]);
+				+ (a1 * y[0]) + (a2 * y[1]);
 		return y[2];
 	}
 }

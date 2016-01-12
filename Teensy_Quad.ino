@@ -36,6 +36,7 @@ float aRes, gRes; // scale resolutions per LSB for the sensors
 #define blinkPin 13  // Blink LED on Teensy
 
 //Motor pins, 23 and 4 are the front, 3, 22 are the back.
+
 /* Diagram
 
 	    Front
@@ -330,6 +331,9 @@ MedianFilter azFilter;
 **/
 FrequencyEvent oneHunHzEvent;
 
+uint32_t currentTime, sensorPreviousTime, previousTime;
+uint8_t frameCounter;
+
 /**
 * Setup everything, calibrate, self test...blah blah. 
 */
@@ -528,6 +532,11 @@ void setup()
 	
 	// flyMode = AUTO_MODE;
 	flyMode = ACRO_MODE;
+
+	currentTime = 0;
+	sensorPreviousTime = 0;
+	previousTime = 0;
+	frameCounter = 0;
 	
 	/*
 		Setup pids
@@ -593,173 +602,191 @@ void serialEvent1() {
 * Main loop of controller. Does one final calibration and then runs main controller. 
 */
 void loop() {
-
-	#ifdef COMPUTE_BIAS_CURVE
-		/*
-		* Going to calculate a calibration curve for the gyro and accelerometer
-		* for temperature compensation. Read values 100 times/second and then
-		* construct a curve using serial monitor values. 
-		*/
-		if(calibrationStart == 0) { //should only be called once. 
+	if(!isCalibrated) {
+		//TODO: Calibration doesn't really do anything now. Need to make it actually work. 
+		if(calibrationStart == 0) {
 			calibrationStart = millis();
 		}
-		//get the biases. 
-		calibrateMPU6050(gyroBias, accelBias);
-		//setup the mpu6050 to read values. 
-		initMPU6050();
-		//update the values
-		readRawMPUData();
-		//read values 10 times per second. 
-		if(millis() - calibrationStart >= 10) {
-			//set the time. 
-			calibrationStart = millis();
-			
-			Serial.print(gx);
-			Serial.print(",");
-			Serial.print(gy);
-			Serial.print(",");
-			Serial.print(gz);
-			Serial.print(",");
-			Serial.print(gyroBias[0]);
-			Serial.print(",");
-			Serial.print(gyroBias[1]);
-			Serial.print(",");
-			Serial.print(gyroBias[2]);
-			Serial.print(",");
-			Serial.print(ax);
-			Serial.print(",");
-			Serial.print(ay);
-			Serial.print(",");
-			Serial.print(az);
-			Serial.print(",");
-			Serial.print(accelBias[0]);
-			Serial.print(",");
-			Serial.print(accelBias[1]);
-			Serial.print(",");
-			Serial.print(accelBias[2]);
-			Serial.print(",");
-			Serial.println(temperature);
-		}
-	#else
-		if(!isCalibrated) {
-			//TODO: Calibration doesn't really do anything now. Need to make it actually work. 
-			if(calibrationStart == 0) {
-				calibrationStart = millis();
-			}
-			if(millis() - calibrationStart > 4000) {
-				isCalibrated = true;
-				digitalWrite(blinkPin, LOW);
-				delay(500);
-				digitalWrite(blinkPin, HIGH);
-				delay(500);
-				digitalWrite(blinkPin, LOW);
-				pitchCorrect/=numSamples;
-				yawCorrect/=numSamples;
-				rollCorrect/=numSamples;
-				numSamples = 0;
-				oneHunHzEvent.start();
+		if(millis() - calibrationStart > 4000) {
+			isCalibrated = true;
+			digitalWrite(blinkPin, LOW);
+			delay(500);
+			digitalWrite(blinkPin, HIGH);
+			delay(500);
+			digitalWrite(blinkPin, LOW);
+			pitchCorrect/=numSamples;
+			yawCorrect/=numSamples;
+			rollCorrect/=numSamples;
+			numSamples = 0;
+			oneHunHzEvent.start();
 				
-			} else {
-				digitalWrite(blinkPin, blinkOn);
-				blinkOn = !blinkOn;
-				updateYPR();
-				pitchCorrect+=pitch;
-				yawCorrect+=yaw;
-				rollCorrect+=roll;
-				numSamples+=1;
-			}
-			
 		} else {
+			digitalWrite(blinkPin, blinkOn);
+			delay(100);
+			blinkOn = !blinkOn;
+			updateYPR();
+			pitchCorrect+=pitch;
+			yawCorrect+=yaw;
+			rollCorrect+=roll;
+			numSamples+=1;
+		}
 			
-			//main loop. 
+	} else {
 			
+		//main loop. 
+			
+		currentTime = micros();
+
+		//sample the data every 1ms...1 kHz
+		if (currentTime - sensorPreviousTime >= 1000) {
 			//read data.
 			readRawMPUData();
-			
-			//update yaw, pitch roll values.
-			if(flyMode == AUTO_MODE) {
-				updateYPR();
-			}
-			
-			//run the filters. 
-			runFilters();
-	
-			/*
-				Update the controls if the update flag was set in the serialEvent1 callback.
-			*/
-			if(update_flag) {
-				//lock in case there are interrupts. 
-				acquireLock();
-				for(int i = 0; i < BUFFERSIZE; i++) {
-					throttle = buffer[0];
-					int temp_yaw = buffer[1];
-					int temp_pitch = buffer[2];
-					int temp_roll = buffer[3];
-					if(temp_yaw == 0){
-						yaw_input = 0;
-					} else {
-						yaw_input = (double) map(temp_yaw, 0, 100, YAW_MIN, YAW_MAX);
-					}
-					
-					if(flyMode == AUTO_MODE) {
-						pitch_input = (double) map(temp_pitch, 0, 100, PITCH_MIN, PITCH_MAX);
-						roll_input = (double) map(temp_roll, 0, 100, ROLL_MIN, ROLL_MAX);
-					} else if(flyMode == ACRO_MODE) {
-						pitch_rate_input = (double) map(temp_pitch, 0, 100, RATE_PITCH_MIN, RATE_PITCH_MAX);
-						roll_rate_input = (double) map(temp_roll, 0, 100, RATE_ROLL_MIN, RATE_ROLL_MAX);
-					}
-					
-					#ifdef DEBUG_CONTROLS
-						Serial.print(throttle);
-						printTab();
-						Serial.print(temp_yaw);
-						printTab();
-						Serial.print(yaw_input);
-						printTab();
-						Serial.print(pitch_input);
-						printTab();
-						Serial.println(roll_input);
-					#endif
-				}
-				update_flag = false;
-				releaseLock();
-			}
-			
-			#if defined(DEBUG) || defined(DEBUG_CONTROLS)
-				readSerialControls();
-			#endif
-			//run pids at 100Hz
-			if(oneHunHzEvent.shouldRunEvent()) {
-
-			#if defined(DEBUG)
-				Serial.print("100 Hz Event Time: ");
-				Serial.println(micros());
-			#endif
-				//compute PIDS now. 
-				computePID();
-			}
-
-			//update motor values. 
-			updateMotors();
-			
-			#ifdef DEBUG
-				printValues();
-			#endif
-			#ifdef DEBUG_CONTROLS
-				//printControlValues();
-			#endif
-			#ifdef DEBUG_RC
-				printRCValues();
-			#endif
-			if(sendToBluetooth && (millis() - count) >= 500) {
-				printBluetoothValues();
-				count = millis();
-			}
-			
+			sensorPreviousTime = currentTime;
 		}
+
+		//100hz task loop.
+		if (currentTime - previousTime > 10000) {
+			frameCounter++;
+
+			process100HzTasks();
+			
+			//50 hz = 20 ms
+			if (frameCounter % TASK_50HZ == 0) {
+				process50HzTasks();
+			}
+
+			//10 hz = 100 ms
+			if (frameCounter % TASK_10HZ == 0) {
+				process10HzTasks();
+			}
+
+			// Reset frameCounter back to 0 after reaching 100 (1s)
+			if (frameCounter >= 100) {
+				frameCounter = 0;
+			}
+
+			previousTime = currentTime;
+		}		
+			
+	}
 	
-	#endif
-	
+}
+
+/**
+* This function is called at a frequency of 100 hz.
+*/
+inline void process100HzTasks() {
+
+	//run the filters. 
+	runFilters();
+
+	//update yaw, pitch roll values.
+	if (flyMode == AUTO_MODE) {
+		updateYPR();
+	}
+
+	//compute PIDS
+	computePID();
+
+	//update motor values. 
+	updateMotors();
+}
+
+/**
+* This function is called at a frequency of 50 hz. 
+*/
+inline void process50HzTasks() {
+	//process serial commands.
+	/*
+	Update the controls if the update flag was set in the serialEvent1 callback.
+	*/
+	if (update_flag) {
+		//lock in case there are interrupts. 
+		acquireLock();
+		for (int i = 0; i < BUFFERSIZE; i++) {
+			throttle = buffer[0];
+			uint8_t temp_yaw = buffer[1];
+			uint8_t temp_pitch = buffer[2];
+			uint8_t temp_roll = buffer[3];
+			if (temp_yaw == 0){
+				yaw_input = 0;
+			}
+			else {
+				yaw_input = (double)map(temp_yaw, 0, 100, YAW_MIN, YAW_MAX);
+			}
+
+			if (flyMode == AUTO_MODE) {
+				pitch_input = (double)map(temp_pitch, 0, 100, PITCH_MIN, PITCH_MAX);
+				roll_input = (double)map(temp_roll, 0, 100, ROLL_MIN, ROLL_MAX);
+			}
+			else if (flyMode == ACRO_MODE) {
+				pitch_rate_input = (double)map(temp_pitch, 0, 100, RATE_PITCH_MIN, RATE_PITCH_MAX);
+				roll_rate_input = (double)map(temp_roll, 0, 100, RATE_ROLL_MIN, RATE_ROLL_MAX);
+			}
+		}
+		update_flag = false;
+		releaseLock();
+	}		
+}
+
+/**
+* This function is called 10 times a second. I.e. at 10 Hz.
+*/
+inline void process10HzTasks() {
+
+#ifdef DEBUG_CONTROLS
+	Serial.print(throttle);
+	printTab();
+	Serial.print(yaw_input);
+	printTab();
+	Serial.print(pitch_input);
+	printTab();
+	Serial.println(roll_input);
+#endif
+
+#if defined(DEBUG) || defined(DEBUG_CONTROLS)
+	readSerialControls();
+#endif
+
+#ifdef DEBUG
+	printValues();
+#endif
+
+#ifdef DEBUG_RC
+	printRCValues();
+#endif
+
+#ifdef DEBUG_MPU
+	Serial.print(yaw, 2);
+	printTab();
+	Serial.print(pitch, 2);
+	printTab();
+	Serial.print(roll, 2);
+	printTab();
+	Serial.print((int)1000 * ax);
+	printTab();
+	Serial.print((int)1000 * ay);
+	printTab();
+	Serial.print((int)1000 * az);
+	printTab();
+	Serial.print(filt_ax);
+	printTab();
+	Serial.print(filt_ay);
+	printTab();
+	Serial.print(filt_az);
+	printTab();
+	Serial.print(gx, 1);
+	printTab();
+	Serial.print(gy, 1);
+	printTab();
+	Serial.print(gz, 1);
+	printTab();
+	Serial.print(filt_gx);
+	printTab();
+	Serial.print(filt_gy);
+	printTab();
+	Serial.println(filt_gz);
+#endif
 }
 
 /**
@@ -815,38 +842,6 @@ inline void updateYPR() {
     pitch *= 180.0f / PI;
     yaw   *= 180.0f / PI; 
     roll  *= 180.0f / PI;
-
-	#ifdef DEBUG_MPU
-		Serial.print(yaw, 2);
-		printTab();
-		Serial.print(pitch, 2);
-		printTab();
-		Serial.print(roll, 2);
-		printTab();
-		Serial.print((int)1000*ax); 
-		printTab();
-		Serial.print((int)1000*ay);
-		printTab();
-		Serial.print((int)1000*az);
-		printTab();
-		Serial.print(filt_ax);
-		printTab();
-		Serial.print(filt_ay);
-		printTab();
-		Serial.print(filt_az);
-		printTab();
-		Serial.print( gx, 1);
-		printTab();
-		Serial.print( gy, 1);
-		printTab();
-		Serial.print( gz, 1);
-		printTab();
-		Serial.print(filt_gx);
-		printTab();
-		Serial.print(filt_gy);
-		printTab();
-		Serial.println(filt_gz);
-	#endif
 }
 
 
@@ -1059,25 +1054,6 @@ inline void computePID() {
 	
 	releaseLock();
 	
-}
-
-inline void readControlsFast() {
-	#ifdef HAS_RC
-		acquireLock();
-	#endif
-	//wait for 4 bytes. 
-	//should be throttle, yaw, pitch, roll
-	if(BLUETOOTH.available() >= 4) {
-		throttle = BLUETOOTH.read();
-		yaw_input = BLUETOOTH.read();
-		pitch_input = BLUETOOTH.read();
-		roll_input = BLUETOOTH.read();
-		BLUETOOTH.flush();
-	}
-	
-	#ifdef HAS_RC
-		releaseLock();
-	#endif
 }
 
 /**

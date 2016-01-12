@@ -15,5 +15,5 @@ private:
 	double q;
 	double b0, b1, b2;
 	double a1, a2;
-}
+};
 #endif

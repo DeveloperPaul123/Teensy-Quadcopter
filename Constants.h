@@ -12,12 +12,12 @@
 /*
 * PID stuff.
 */
-#define PITCH_MIN -50
-#define PITCH_MAX 50
-#define ROLL_MIN -50
-#define ROLL_MAX 50
-#define YAW_MIN -100
-#define YAW_MAX 100
+#define PITCH_MIN -35
+#define PITCH_MAX 35
+#define ROLL_MIN -35
+#define ROLL_MAX 35
+#define YAW_MIN -150
+#define YAW_MAX 150
 
 //max rotational rates in degrees per second. 
 #define RATE_PITCH_MIN -150
@@ -44,6 +44,13 @@
 
 #define MAX_THROTTLE (PWM_MAX - PID_INFLUENCE)
 #define MIN_THROTTLE (PID_INFLUENCE)
+
+
+// Modulo definitions (integer remainder) processing events
+// at a fixed rate.
+#define TASK_50HZ 2
+#define TASK_10HZ 10
+#define TASK_1HZ 100
 
 /**
 * RC Stuff
