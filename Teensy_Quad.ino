@@ -4,34 +4,12 @@
 **/
 
 #include <i2c_t3.h>
-#include "PID_v1.h"
+#include "PID_v2.h"
 #include "Constants.h"
 #include "MedianFilter.h"
 #include "QuadConfig.h"
 #include "FrequencyEvent.h"
-
-
-// Set initial input parameters
-enum Ascale {
-  AFS_2G = 0,
-  AFS_4G,
-  AFS_8G,
-  AFS_16G
-};
-
-enum Gscale {
-  GFS_250DPS = 0,
-  GFS_500DPS,
-  GFS_1000DPS,
-  GFS_2000DPS
-};
-
-/*
-* Specify sensor full scale
-*/
-int Gscale = GFS_2000DPS;
-int Ascale = AFS_8G;
-float aRes, gRes; // scale resolutions per LSB for the sensors
+#include "MPU6050_DP.h"
   
 #define blinkPin 13  // Blink LED on Teensy
 
@@ -77,10 +55,8 @@ volatile unsigned long rcLastChange6 = micros();
 //blink variable for  LED (pin 13)
 boolean blinkOn = false;
 
-/*
-* Stores the 16-bit signed accelerometer sensor output
-*/
-int16_t accelCount[3];  
+
+MPU6050 mpu;
 
 /*
 * Stores the real accel value in g's
@@ -90,22 +66,17 @@ float ax, ay, az;
 /*
 * Stores filtered accelerometer values. 
 */   
-double filt_ax, filt_ay, filt_az; 
-
-/*
-* Stores the 16-bit signed gyro sensor output
-*/
-int16_t gyroCount[3];   
+float filt_ax, filt_ay, filt_az; 
 
 /*
 * Stores the real gyro value in degrees per seconds
 */
-double gx, gy, gz;  
+float gx, gy, gz;  
  
 /*
 * Stores the filtered gyro values.     
 */
-double filt_gx, filt_gy, filt_gz; 
+float filt_gx, filt_gy, filt_gz; 
 
 /*
 * Stores the biases for accelerometer and gyroscope. On level ground for
@@ -450,56 +421,10 @@ void setup()
 	
 	delay(1000);
 
-	// Read the WHO_AM_I register, this is a good test of communication
-	uint8_t c = readByte(MPU6050_ADDRESS, WHO_AM_I_MPU6050);  // Read WHO_AM_I register for MPU-6050
-	Serial.println(c);
-	delay(1000); 
-
-	// WHO_AM_I should always be 0x68
-	if (c == 0x68) 
-	{  
-	Serial.println("MPU6050 is online...");
-
-	// Start by performing self test and reporting values
-	MPU6050SelfTest(SelfTest); 
-
-	if(SelfTest[0] < 1.0f && SelfTest[1] < 1.0f && SelfTest[2] < 1.0f && SelfTest[3] < 1.0f && SelfTest[4] < 1.0f && SelfTest[5] < 1.0f) {
-		Serial.println("Self test passed");
-		delay(1000);
-		
-		// Calibrate gyro and accelerometers, load biases in bias registers
-		calibrateMPU6050(gyroBias, accelBias);   
-		#ifdef FIRST_RUN
-			Serial.print("Gyro: ");
-			printTab();
-			Serial.print(gyroBias[0]);
-			printTab();
-			Serial.print(gyroBias[1]);
-			printTab();
-			Serial.print(gyroBias[2]);
-			printTab();
-			Serial.print("Accel: ");
-			printTab();
-			Serial.print(accelBias[0]);
-			printTab();
-			Serial.print(accelBias[1]);
-			printTab();
-			Serial.println(accelBias[2]);
-		#endif
-				
-		delay(1000); 
-		
-		// Initialize device for active mode read of acclerometer, gyroscope, and temperature
-		initMPU6050(); Serial.println("MPU6050 initialized for active data mode...."); 
-	}
-	else
-	{
-		Serial.print("Could not connect to MPU6050: 0x");
-		Serial.println(c, HEX);
-		digitalWrite(blinkPin, HIGH);
-		while(1) ; // Loop forever if communication doesn't happen
-		}
-	}
+	//setup the MPU6050
+	mpu.initMPU6050();
+	mpu.calibrateGyro();
+	mpu.calibrateAccelerometer();
 	
 	/*
 		Initialize values.
@@ -520,15 +445,6 @@ void setup()
 	m_two = 0;
 	m_three = 0;
 	m_four = 0;
-	
-	numSamples = 0;
-	pitchCorrect = 0;
-	yawCorrect = 0;
-	rollCorrect = 0;
-	
-	isCalibrated = false;
-	calibrationStart = 0;
-	blinkOn = true;
 	
 	// flyMode = AUTO_MODE;
 	flyMode = ACRO_MODE;
@@ -574,8 +490,7 @@ void setup()
 		initRC();
 	#endif
 	
-	//set frequency to 100 Hz for PIDs
-	oneHunHzEvent.setFrequency(100);
+	
 	
 }
 
@@ -601,74 +516,43 @@ void serialEvent1() {
 /**
 * Main loop of controller. Does one final calibration and then runs main controller. 
 */
-void loop() {
-	if(!isCalibrated) {
-		//TODO: Calibration doesn't really do anything now. Need to make it actually work. 
-		if(calibrationStart == 0) {
-			calibrationStart = millis();
-		}
-		if(millis() - calibrationStart > 4000) {
-			isCalibrated = true;
-			digitalWrite(blinkPin, LOW);
-			delay(500);
-			digitalWrite(blinkPin, HIGH);
-			delay(500);
-			digitalWrite(blinkPin, LOW);
-			pitchCorrect/=numSamples;
-			yawCorrect/=numSamples;
-			rollCorrect/=numSamples;
-			numSamples = 0;
-			oneHunHzEvent.start();
-				
-		} else {
-			digitalWrite(blinkPin, blinkOn);
-			delay(100);
-			blinkOn = !blinkOn;
-			updateYPR();
-			pitchCorrect+=pitch;
-			yawCorrect+=yaw;
-			rollCorrect+=roll;
-			numSamples+=1;
-		}
-			
-	} else {
-			
-		//main loop. 
-			
-		currentTime = micros();
+void loop() {			
+	//main loop. 
+		
+	currentTime = micros();
 
-		//sample the data every 1ms...1 kHz
-		if (currentTime - sensorPreviousTime >= 1000) {
-			//read data.
-			readRawMPUData();
-			sensorPreviousTime = currentTime;
-		}
-
-		//100hz task loop.
-		if (currentTime - previousTime > 10000) {
-			frameCounter++;
-
-			process100HzTasks();
-			
-			//50 hz = 20 ms
-			if (frameCounter % TASK_50HZ == 0) {
-				process50HzTasks();
-			}
-
-			//10 hz = 100 ms
-			if (frameCounter % TASK_10HZ == 0) {
-				process10HzTasks();
-			}
-
-			// Reset frameCounter back to 0 after reaching 100 (1s)
-			if (frameCounter >= 100) {
-				frameCounter = 0;
-			}
-
-			previousTime = currentTime;
-		}		
-			
+	//sample the data every 1ms...1 kHz
+	if (currentTime - sensorPreviousTime >= 1000) {
+		//read data sums.
+		mpu.readGyroSum();
+		mpu.readAccelSum();
+		sensorPreviousTime = currentTime;
 	}
+
+	//100hz task loop.
+	if (currentTime - previousTime > 10000) {
+		frameCounter++;
+
+		process100HzTasks();
+		
+		//50 hz = 20 ms
+		if (frameCounter % TASK_50HZ == 0) {
+			process50HzTasks();
+		}
+
+		//10 hz = 100 ms
+		if (frameCounter % TASK_10HZ == 0) {
+			process10HzTasks();
+		}
+
+		// Reset frameCounter back to 0 after reaching 100 (1s)
+		if (frameCounter >= 100) {
+			frameCounter = 0;
+		}
+
+		previousTime = currentTime;
+	}		
+			
 	
 }
 
@@ -677,8 +561,23 @@ void loop() {
 */
 inline void process100HzTasks() {
 
+	float gData[3];
+	float aData[3];
+	
+	mpu.evaluateGyro(gData);
+	mpu.evaluateAccel(aData);
+	
+	gx = gData[0];
+	gy = gData[1];
+	gz = gData[2];
+	
+	ax = aData[0];
+	ay = aData[1];
+	az = aData[2];
+	
+	//no filters for now since accelerometer and gyro values are averaged.
 	//run the filters. 
-	runFilters();
+	//runFilters();
 
 	//update yaw, pitch roll values.
 	if (flyMode == AUTO_MODE) {

@@ -121,16 +121,18 @@ int16_t readTempData() {
 void initMPU6050()
 {  
 // wake up device-don't need this here if using calibration function below
-//  writeByte(MPU6050_ADDRESS, PWR_MGMT_1, 0x00); // Clear sleep mode bit (6), enable all sensors 
-//  delay(100); // Delay 100 ms for PLL to get established on x-axis gyro; should check for PLL ready interrupt  
+  writeByte(MPU6050_ADDRESS, PWR_MGMT_1, 0x80); // Clear sleep mode bit (6), enable all sensors 
+  delay(100); // Delay 100 ms for PLL to get established on x-axis gyro; should check for PLL ready interrupt  
 
  // get stable time source
  // Set clock source to be PLL with z-axis gyroscope reference, bits 2:0 = 0011
   writeByte(MPU6050_ADDRESS, PWR_MGMT_1, 0x03);
+  writeByte(MPU6050_ADDRESS, PWR_MGMT_2, 0x00);
 
  // Configure Gyro and Accelerometer
  // DLPF_CFG = bits 2:0 = 000; this sets the sample rate at 1 kHz for both
-  writeByte(MPU6050_ADDRESS, CONFIG, 0x00);  
+ //DLPF = 42 hz
+  writeByte(MPU6050_ADDRESS, CONFIG, 0x03);  
  
  // Set sample rate = gyroscope output rate/(1 + SMPLRT_DIV)
   writeByte(MPU6050_ADDRESS, SMPLRT_DIV, 0x07);  // Use a 1kHz rate; the same rate set in CONFIG above
@@ -148,6 +150,8 @@ void initMPU6050()
   writeByte(MPU6050_ADDRESS, ACCEL_CONFIG, c & ~0x18); // Clear AFS bits [4:3]
   writeByte(MPU6050_ADDRESS, ACCEL_CONFIG, c | Ascale << 3); // Set full scale range for the accelerometer 
 
+  delay(500);
+  
   // Configure Interrupts and Bypass Enable
   // Set interrupt pin active high, push-pull, and clear on read of INT_STATUS, enable I2C_BYPASS_EN so additional chips 
   // can join the I2C bus and all can be controlled by the Arduino as master
